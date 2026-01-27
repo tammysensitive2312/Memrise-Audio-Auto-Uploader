@@ -14,38 +14,60 @@ from webdriver_manager.chrome import ChromeDriverManager
 USERNAME = "your email"
 PASSWORD = "your email password"
 # link to database, ex: https://community-courses.memrise.com/course/6714335/m/edit/database/7775210/
-DATABASE_URL = ""
+DATABASE_URL = "https://community-courses.memrise.com/course/6714311/engrisk/edit/database/7775185/"
 BASE_DIR = os.getcwd()
 
 
 def setup_driver():
-    print("🌐 [BƯỚC 1] Đang khởi tạo trình duyệt Chrome...")
+    print("🌐 [BƯỚC 1] Đang khởi tạo Chrome với Profile RIÊNG BIỆT...")
     options = webdriver.ChromeOptions()
     options.add_argument("--start-maximized")
 
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
+    # --- CẤU HÌNH PROFILE RIÊNG (KHÔNG DÙNG PROFILE CHÍNH NỮA) ---
+    # Selenium sẽ tự động tạo dữ liệu vào thư mục này
+    # Đảm bảo đường dẫn này tồn tại hoặc ngắn gọn, không có dấu tiếng Việt
+    user_data_dir = r"E:\SeleniumProfile"
+    options.add_argument(f"user-data-dir={user_data_dir}")
 
-    options.add_argument("--disable-infobars")
-    options.add_argument("--disable-notifications")
+    # BỎ dòng profile-directory=Default (Không cần thiết với Custom Profile)
+    # BỎ dòng remote-debugging-port=9222 (Để Chrome tự chọn cổng ngẫu nhiên -> Tránh xung đột)
+
+    # Các tùy chọn ổn định
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+
+    # Tắt cảnh báo
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    options.add_argument("--disable-infobars")
 
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 
 def login(driver, wait):
-    print("🔑 [BƯỚC 2] Đang truy cập trang đăng nhập Memrise...")
-    driver.get("https://community-courses.memrise.com/signin")
+    print("🔑 [BƯỚC 2] Truy cập Memrise (Sử dụng Cookie đã lưu)...")
 
-    print("⏳ Đang điền thông tin đăng nhập...")
-    wait.until(EC.presence_of_element_located((By.NAME, "username"))).send_keys(USERNAME)
-    driver.find_element(By.NAME, "password").send_keys(PASSWORD)
-    driver.find_element(By.XPATH, "//button[@type='submit']").click()
+    # 1. Truy cập trang Dashboard
+    driver.get("https://community-courses.memrise.com/dashboard")
 
-    # Chờ sau khi login xong
-    wait.until(EC.url_contains("dashboard"))
-    print("✅ Đăng nhập thành công! Đã vào Dashboard.")
+    print("⏳ Đang đợi trang web tải (Chờ 5 giây)...")
+    time.sleep(5)  # Chờ cứng 5s để đảm bảo web load hết, kệ cho mạng chậm
+
+    # 2. Lấy URL hiện tại để kiểm tra
+    current_url = driver.current_url
+    print(f"🔗 URL hiện tại mà Bot đang thấy: {current_url}")
+
+    # 3. Logic kiểm tra đơn giản hơn:
+    # Nếu URL KHÔNG chứa chữ "signin" hoặc "login" -> Nghĩa là đã vào được trong.
+    if "signin" not in current_url and "login" not in current_url:
+        print("✅ Xác nhận: Đã ở trong trạng thái đăng nhập!")
+    else:
+        # Trường hợp xấu: Vẫn bị đá về trang login
+        print("❌ CẢNH BÁO: Bot vẫn đang ở trang Login. Có thể Cookie chưa ăn.")
+        print("👉 Hãy thử chạy lại lệnh PowerShell để đăng nhập lại.")
+        driver.quit()
+        exit()
 
 
 # --- TÍNH NĂNG MỚI: CHUẨN HÓA TÊN FILE ---
@@ -134,17 +156,27 @@ def upload_audios(driver, wait):
 
 if __name__ == "__main__":
     print("🚀 BẮT ĐẦU KHỞI CHẠY CHƯƠNG TRÌNH...")
+
+    try:
+        os.system("taskkill /F /IM chrome.exe /T >nul 2>&1")
+    except:
+        pass
+
     driver = setup_driver()
-    wait = WebDriverWait(driver, 15) # Thời gian chờ tối đa 15 giây
+    wait = WebDriverWait(driver, 15)
 
     try:
         login(driver, wait)
         upload_audios(driver, wait)
         print("🎉 HOÀN TẤT TOÀN BỘ QUÁ TRÌNH!")
+
     except Exception as e:
-        print(f"❌ CHƯƠNG TRÌNH DỪNG ĐỘT NGỘT VÌ LỖI: {str(e)}")
-        print("🔍 Chi tiết lỗi (Traceback):")
+        print(f"\n❌ CHƯƠNG TRÌNH DỪNG VÌ LỖI: {e}")
         traceback.print_exc()
+
     finally:
-        input("Nhấn Enter để đóng trình duyệt...")
-        driver.quit()
+        try:
+            input("\nNhấn Enter để đóng trình duyệt và kết thúc...")
+            driver.quit()
+        except:
+            print("Chương trình đã kết thúc.")
