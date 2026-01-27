@@ -85,51 +85,106 @@ def write_error_log(failed_list):
 
 
 def upload_audios(driver, wait):
-    print(f"📂 [BƯỚC 3.2] Đang tải cơ sở dữ liệu khóa học...")
-    driver.get(DATABASE_URL)
-    time.sleep(3)  # Đợi load trang database
+    print(f"📂 [BƯỚC 3.2] Đang chuẩn bị tải lên...")
 
+    # 1. Chuẩn bị danh sách file
     audio_folder = os.path.join(BASE_DIR, "audios")
-
-    # CHUẨN HÓA TÊN FILE TRƯỚC KHI LẤY DANH SÁCH
     normalize_audio_filenames(audio_folder)
 
-    audio_files = [f for f in os.listdir(audio_folder) if f.endswith(".mp3")]
-    total_files = len(audio_files)
-    print(f"🎯 [BƯỚC 4] Bắt đầu quá trình Upload {total_files} file âm thanh...")
-    print("-" * 50)  # Dòng kẻ phân cách cho dễ nhìn
+    # Lấy danh sách tất cả file mp3 cần upload
+    # Dùng set (tập hợp) để tìm kiếm nhanh hơn list
+    all_audio_files = {f.replace(".mp3", ""): f for f in os.listdir(audio_folder) if f.endswith(".mp3")}
+    total_files = len(all_audio_files)
 
-    # Khởi tạo danh sách chứa các từ bị lỗi
+    if total_files == 0:
+        print("⚠️ Không tìm thấy file mp3 nào trong thư mục 'audios'. Kết thúc.")
+        return
+
+    print(f"🎯 Tìm thấy {total_files} file audio cần xử lý.")
+
+    # 2. Bắt đầu vòng lặp duyệt từng trang
+    current_page = 1
+    files_uploaded_count = 0
     failed_words = []
 
-    # Sử dụng enumerate để lấy số thứ tự (index)
-    for index, audio_name in enumerate(audio_files, start=1):
-        word = audio_name.replace(".mp3", "")
-        audio_path = os.path.join(audio_folder, audio_name)
+    while True:
+        print(f"\n📄 --- ĐANG XỬ LÝ TRANG {current_page} ---")
 
-        # Hiển thị tiến độ kiểu [1/5], [2/5]...
-        print(f"[{index}/{total_files}] Đang xử lý từ: '{word}' ...", end=" ")
+        # Xử lý URL phân trang
+        # Nếu URL đã có tham số (dấu ?) thì dùng dấu &, ngược lại dùng dấu ?
+        separator = "&" if "?" in DATABASE_URL else "?"
+        page_url = f"{DATABASE_URL}{separator}page={current_page}"
 
+        driver.get(page_url)
+        time.sleep(3)  # Đợi trang tải
+
+        # 3. Kỹ thuật "QUÉT MỘT LƯỢT" (Scraping map)
+        # Thay vì tìm từng từ (rất chậm), ta lấy toàn bộ từ đang hiển thị trên trang này về
         try:
-            # TÌM DÒNG (Chữ thường)
-            row_xpath = f"//tr[contains(@class, 'thing') and .//td[@data-key='1']//div[text()='{word}']]"
-            row_element = wait.until(EC.presence_of_element_located((By.XPATH, row_xpath)))
+            # Lấy tất cả các dòng dữ liệu (class 'thing')
+            rows = driver.find_elements(By.XPATH, "//tr[contains(@class, 'thing')]")
 
-            # TÌM INPUT VÀ UPLOAD
-            input_xpath = ".//input[@type='file' and contains(@class, 'add_thing_file')]"
-            file_input = row_element.find_element(By.XPATH, input_xpath)
-            file_input.send_keys(audio_path)
+            if not rows:
+                print("🛑 Trang này trống (không có từ vựng). Dừng quy trình phân trang.")
+                break  # Thoát vòng lặp while
 
-            time.sleep(1.5)  # Đợi tải lên
-            print(f"✅ Thành công!")
+            print(f"   -> Tìm thấy {len(rows)} từ vựng trên trang này. Đang so khớp...")
+
+            # Duyệt qua từng dòng trên web
+            for row in rows:
+                try:
+                    # 1. Lấy từ trên web
+                    word_element = row.find_element(By.XPATH, ".//td[@data-key='1']//div[@class='text']")
+                    word_on_web = word_element.text.strip().lower()
+
+                    # 2. KIỂM TRA NHANH (Không cần vòng lặp for con)
+                    # Chúng ta đảo ngược dictionary thành {word: filename} ở đầu hàm để tra cứu O(1)
+                    # (Xem phần Lưu ý bên dưới để sửa đoạn khai báo all_audio_files)
+
+                    # Nếu danh sách từ điển có chứa từ này
+                    if word_on_web in all_audio_files:
+                        matched_filename = all_audio_files[word_on_web]
+
+                        # Upload file
+                        input_file = row.find_element(By.XPATH, ".//input[@type='file' and contains(@class, 'add_thing_file')]")
+                        file_path = os.path.join(audio_folder, matched_filename)
+                        input_file.send_keys(file_path)
+
+                        print(f"   ✅ Upload thành công: '{word_on_web}'")
+                        files_uploaded_count += 1
+                        time.sleep(0.5)
+
+                        # Xóa từ đã làm xong khỏi danh sách (Để tránh upload lại ở trang sau nếu lỡ trùng)
+                        del all_audio_files[word_on_web]
+
+                        # Nếu danh sách cần làm đã TRỐNG TRƠN -> Nghĩa là xong hết rồi
+                        if not all_audio_files:
+                            print("\n🏁 Đã upload hết toàn bộ file trong thư mục. Dừng chương trình sớm!")
+                            return
+
+                except Exception as e:
+                    # Lỗi nhỏ ở dòng này thì bỏ qua, đi dòng tiếp
+                    continue
 
         except Exception as e:
-            print(f"❌ THẤT BẠI (Không tìm thấy từ trên Web)")
-            failed_words.append(word)
+            print(f"⚠️ Có lỗi khi quét trang {current_page}: {e}")
+            break
+
+        # 4. Kiểm tra nút Next để quyết định có chạy tiếp không
+        try:
+            # Tìm xem có nút phân trang tiếp theo không, hoặc đơn giản là cứ tăng page
+            # Nếu số lượng dòng < số lượng tối đa 1 trang (thường là 100) -> Hết trang
+            if len(rows) < 20:
+                print("🛑 Đã đến trang cuối cùng. Hoàn tất.")
+                break
+
+            current_page += 1
+
+        except:
+            break
 
     print("-" * 50)
-    print("📝 [BƯỚC 5] Đang tổng hợp lỗi...")
-    write_error_log(failed_words)
+    print(f"🎉 TỔNG KẾT: Đã upload thành công {files_uploaded_count}/{total_files} file audio.")
 
 
 if __name__ == "__main__":
