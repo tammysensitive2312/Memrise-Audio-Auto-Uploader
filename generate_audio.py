@@ -1,10 +1,11 @@
 import os
 from gtts import gTTS
 
-
-def generate_test_audios():
-    # 1. Danh sách 5 từ tiếng Anh bất kỳ (bạn có thể thay đổi tùy ý)
-    words = ["apple", "communicate", "software", "engineer", "success"]
+def generate_audios_from_file(input_file="words.txt"):
+    # 1. Kiểm tra xem file words.txt có tồn tại không
+    if not os.path.exists(input_file):
+        print(f"❌ Lỗi: Không tìm thấy file '{input_file}'!")
+        return
 
     # 2. Tạo thư mục 'audios' nếu chưa tồn tại
     output_folder = "audios"
@@ -12,27 +13,32 @@ def generate_test_audios():
         os.makedirs(output_folder)
         print(f"📁 Đã tạo thư mục: {output_folder}")
 
-    print("⏳ Đang bắt đầu tạo file audio...")
+    # 3. Đọc danh sách từ từ file
+    with open(input_file, "r", encoding="utf-8") as f:
+        # .strip() để loại bỏ khoảng trắng và ký tự xuống dòng dư thừa
+        words = [line.strip() for line in f if line.strip()]
 
-    # 3. Vòng lặp tạo file mp3 cho từng từ
+    if not words:
+        print("⚠️ File 'words.txt' đang trống.")
+        return
+
+    print(f"⏳ Bắt đầu tạo audio cho {len(words)} từ...")
+
+    # 4. Vòng lặp tạo file mp3
     count = 0
     for word in words:
-        # Đường dẫn lưu file (ví dụ: audios/apple.mp3)
-        file_path = os.path.join(output_folder, f"{word}.mp3")
+        # Chuyển tên file về chữ thường để khớp với logic upload của tool
+        file_path = os.path.join(output_folder, f"{word.lower()}.mp3")
 
         try:
-            # Tạo giọng đọc: lang='en' (Tiếng Anh), slow=False (Tốc độ đọc bình thường)
             tts = gTTS(text=word, lang='en', slow=False)
-
-            # Lưu thành file mp3
             tts.save(file_path)
-            print(f"✅ Đã tạo thành công: {word}.mp3")
+            print(f"✅ Đã tạo: {word.lower()}.mp3")
             count += 1
         except Exception as e:
-            print(f"❌ Lỗi khi tạo audio cho từ '{word}': {e}")
+            print(f"❌ Lỗi cho từ '{word}': {e}")
 
-    print(f"🎉 Hoàn tất! Đã tạo {count} file trong thư mục '{output_folder}'.")
-
+    print(f"🎉 Hoàn tất! Đã tạo {count}/{len(words)} file trong thư mục '{output_folder}'.")
 
 if __name__ == "__main__":
-    generate_test_audios()
+    generate_audios_from_file()
